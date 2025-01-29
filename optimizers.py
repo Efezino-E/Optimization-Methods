@@ -1,90 +1,116 @@
 import numpy as np
 import random
 
-class cheetah_optimizer():
-    def __init__(self, n_cheetahs, n_iterations = None) -> None:
-        self.n_cheetahs = n_cheetahs
-        self.n_iterations = n_iterations
+class optimizer():
+    def __init__(self, bounds, obj_f):
+        """
+        This function instantiates an optimizer class with the search space (bounds)
+        and the objective function to maximize within that search space.
 
-    def set_obj_f(self, obj_f) -> None:
-        self.obj_f = obj_f
-    
-    def set_bounds(self, bounds) -> None:
+        *   bounds defines a search space. Each dimension in the search space, is specified by a tuple 
+        (lower bound for dimesnion, upper bound for dimension) in bounds
+        *   obj_f is the objective function specified is to be maximized. 
+        If instead you have a cost function, multiply it by -1 or raise it to the power of -1
+        """
         self.bounds = bounds
+        self.lb, self.ub = zip(*bounds)
+        self.dim = len(bounds)
+        self.obj_f = obj_f
+        self.history = True
+
+    def store_history(self, value):
+        """
+        This function sets whether best values and parameters found for each iteration
+        should be stored or not for the optimization process. Default value is True
+        """
+        self.history = value
+
+class swarm_optimizer(optimizer):
+    def __init__(self, bounds, obj_f, population_size, max_iter):
+        """
+        This functions instantiates a swarm optimizer class using its
+        population size and maximum generations for evolution
+        """
+        super().__init__(bounds, obj_f)
+        self.pop_size = population_size
+        self.max_iter = max_iter
     
-    def gen_cheetah(self):
-        cheetahs = []
+    def evaluate(self, members):
+        """
+        This function returns the fitness of all members specified in an itertive
+        """
+        return np.apply_along_axis(self.obj_f, 1, members)
+
+    def gen_population(self):
+        """
+        This function generates a random population of members 
+        given the bounds specifiied for each dimension
+        """
+        population = []
         for lower, upper in self.bounds:
-            cheetahs.append(np.random.randint(lower * 100, upper * 100, self.n_cheetahs)/100)
-        return np.array(cheetahs).T
-    
+            population.append(np.random.randint(lower * 100, upper * 100, self.pop_size) / 100)
+        return np.array(population).T
+
     def clip(self, arr):
-        clipped = np.array(arr)
-        for i, (lower, upper) in enumerate(self.bounds):
-            if clipped[i] < lower:
-                clipped[i] = lower + np.random.rand()*(upper - lower)
-            elif clipped[i] > upper:
-                clipped[i] = upper - np.random.rand()*(upper - lower)
-            else:
-                clipped[i] = clipped[i]
-        return np.round(clipped, 2)
+        """
+        This function clips an entire array within the bounds of the problem
+        """
+        return np.clip(arr, self.lb, self.ub)
+
+class cheetah_optimizer(swarm_optimizer):
+    def __init__(self, bounds, obj_f, population_size, max_iter = None):
+        super().__init__(bounds, obj_f, population_size, max_iter)
     
     def random_select(self, low, high, size):
-        arr = list(range(low, high, 1))
-        selected = []
-        for _ in range(size):
-            gen = arr[np.random.randint(0, len(arr))]
-            selected.append(gen)
-            q = arr.index(gen)
-            arr.pop(q)
-        return np.array(selected)
+        """
+        Returns N unique elements within the limits low nd high provided
+        """
+        if high - low < size:
+            raise ValueError("Range is too small to generate required numbers")
+        
+        return np.random.choice(range(low, high), size = size, replace = False)
 
     def optimize(self):
-        history = {"iterations": [], "Score": [], "Cheetah" : []}
+        if self.history:
+            history = {"iteration_no": [], "score": [], "parameters" : []}
     
         # Define the initial population size and dimensions
-        n = self.n_cheetahs
-        D = len(self.bounds)
+        n = self.pop_size
+        D = self.dim
 
         # Generate the initial population of the cheetahs and evaluate the fitness of each cheetah
-        cheetahs = self.gen_cheetah()
-        fitness = []
-        for cheetah in cheetahs:
-            fitness.append(self.obj_f(cheetah))
-        fitness = np.array(fitness)
+        cheetahs = self.gen_population()
+        fitness = self.evaluate(cheetahs)
         
-        #Initialize home, leader and prey
+        #Initialize home, leaders and prey
         home = cheetahs.copy()
-        leader_index =  np.argmax(fitness)
-        leader = cheetahs[leader_index].copy()
         prey_index = np.argmax(fitness)
         prey = cheetahs[prey_index].copy()
+        score = fitness[prey_index]
+        leaders = []
 
-        # Initialize the hunting time and iteration counters, and determine max hunting time and iteration number
+        # Initialize the hunting time (t) and iteration counter (it)
         t = 0
-        leaders = [leader.copy()]
-
         it = 0
 
-        if self.n_iterations == None:
+        # determine max hunting time (T) and iteration number (maxit)
+        if self.max_iter == None:
             maxit = D*2000
         else:
-            maxit = self.n_iterations
-
+            maxit = self.max_iter
         T = 60 * int(np.ceil(D/10))
         
-        
-        # Lopp while max iteration number is not reached
+        # Loop while max iteration number is not reached
         while it <= maxit:
-
             # Select m (1 <= m <= n) members of cheetahs randomly
             m = np.random.randint(2, n)
             members = self.random_select(0, n, m)
-            
+            iteration_fitness = [fitness[member] for member in members]
+            leader_index = members[np.argmax(iteration_fitness)]
+            leader = cheetahs[leader_index].copy()
 
             # loop over each member
             for k, member in enumerate(members):
-
                 # define the neighbour member
                 if k != len(members) - 1:
                     neighbour = k + 1
@@ -99,20 +125,21 @@ class cheetah_optimizer():
                 # loop ever each dimension in a random order
                 DD = self.random_select(0, D, D)
                 for j in DD:
-
-                    # Calculate r_hat, r_check, alpha, beta and H
+                    # Calculate r_hat and r_check
                     r_hat = np.random.rand()
-                    
                     r = np.random.randn()
                     r_check = abs(r) ** np.exp(r / 2) * np.sin(2 * np.pi * r)
 
+                    # calculate alpha
                     if member == leader_index:
                         alpha = 0.0001 * (t/T) * (self.bounds[j][1] - self.bounds[j][0])
                     else:
                         alpha = 0.0001 * (t/T) * (self.bounds[j][1] - self.bounds[j][0]) + (0.0001 * (np.random.rand() > 0.9))
 
+                    # calculate beta
                     beta = X1[j] - X[j]
 
+                    # calculate H
                     h0 = np.exp(2 * (1 - t / T))
                     r1 = np.random.rand()
                     H = h0 * (2 * r1 - 1)
@@ -126,33 +153,31 @@ class cheetah_optimizer():
                         r4 = 3 * np.random.rand()
                         if H > r4: #Attack
                             Z[j] = Xbest[j] + r_check * beta
-                            #print("Attack")
 
                         else: #Search
                             Z[j] = X[j] + (1 / r_hat) * alpha
-                            #print("Search")
 
                     else: # Sit and Wait
                         Z[j] = X[j]
-                        #print("Sit and Wait")
 
                 # Update cheetahs[member] and leader and prey
                 Z = self.clip(Z)
                 cheetahs[member] = Z.copy()
                 fitness[member] = self.obj_f(cheetahs[member])
+                iteration_fitness[np.argmax(members == member)] = fitness[member]
 
                 if member != leader_index:
                     if fitness[member] > fitness[leader_index]:
                         leader_index = member
                         leader = cheetahs[leader_index].copy()
                 else:
-                    leader_index = np.argmax(fitness)
+                    leader_index = members[np.argmax(iteration_fitness)]
                     leader = cheetahs[leader_index].copy()
-                #print("member updated")
 
-                if self.obj_f(cheetahs[member].copy()) > self.obj_f(prey):
-                    prey = cheetahs[member].copy()
-                    #print("prey updated from member assignment")
+                if fitness[leader_index] > score:
+                    score = fitness[leader_index]
+                    prey_index = leader_index
+                    prey = cheetahs[leader_index].copy()
                             
             # update hunting time
             t += 1
@@ -161,80 +186,38 @@ class cheetah_optimizer():
             # Implement when to leave prey and go back home
             r = np.random.rand()
             if t > r * T and round(t - r * T) > 1 and t > 2:
-                if (abs(leaders[t] - leaders[round(t - r * T)]) <= abs(0.01 * leaders[t])).all():
-                    #print("left prey and went back home")
+                if (abs(leaders[t - 1] - leaders[round(t - r * T - 1)]) <= abs(0.01 * leaders[t - 1])).all():
+                    t = 0
                     cheetahs = home.copy()
                     cheetahs[member] = prey.copy()
-                    t = 0
-
-                    fitness = []
-                    for cheetah in cheetahs:
-                        fitness.append(self.obj_f(cheetah))
-                    leader_index = np.argmax(fitness)
-                    leader = cheetahs[leader_index].copy()
-                    leaders = [leader.copy()]
+                    fitness = self.evaluate(cheetahs)
+                    leaders = []
 
             # update iteration number
             a = int(it / maxit * 40)
             b = 40 - a
-            print(f"\r{ a * '='}{b * '-'} {round(it / maxit * 100)}%", end = "", flush = True)
+            print(f"\r{ a * '='}{b * '-'}{round(it / maxit * 100)}%{'' * 5}", end = "", flush = True)
             it += 1
 
-            # Update prey
-            if self.obj_f(leader) > self.obj_f(prey):
-                prey = leader.copy()
-                #print("prey updated from leader assignmet")
+            # Update prey 
+            # TODO 
+            # Change this to only update from leader rather than using obj_f
+            max_index = np.argmax(fitness)
+            if fitness[max_index] > score:
+                score = fitness[max_index]
+                prey_index = max_index
+                prey = cheetahs[prey_index]
 
-            score = self.obj_f(prey)
-            history["iterations"].append(it - 1)
-            history["Score"].append(score)
-            history["Cheetah"].append(prey)
+            if self.history:
+                history["iteration_no"].append(it - 1)
+                history["score"].append(score)
+                history["parameters"].append(prey)
         
-        return history
-
-class swarm_optimizer():
-    def __init__(self, population_size, max_iter) -> None:
-        """
-        This function initializes a swarm optimizer using its
-        population size and maximum generations for evolution
-        """
-        self.pop_size = population_size
-        self.max_iter = max_iter
-
-    def set_obj_f(self, obj_f) -> None:
-        """
-        This function sets the objective function of the swarm optimizer
-        """
-        self.obj_f = obj_f
-    
-    def set_bounds(self, bounds) -> None:
-        """
-        This function sets the bounds of the swarm optimizer for each
-        dimension in the search space. 
-
-        bounds is a list that is of the same length as the number of
-        dimensions in the search space. Each element of bounds is a tuple 
-        of two elements containing the values for the lower and upper 
-        limits as the first and second elements.
-        """
-        self.bounds = bounds
-    
-    def evaluate(self, members):
-        """
-        This function returns the fitness of all members specified in an itertive
-        """
-        return np.apply_along_axis(self.obj, 1, members)
-
-    def gen_population(self):
-        """
-        This function generates a random population of members 
-        given the bounds specifiied for each dimension
-        """
-        population = []
-        for lower, upper in self.bounds:
-            population.append(np.random.randint(lower * 100, upper * 100, self.pop_size) / 100)
-        return np.array(population).T
-    
+        if self.history:
+            return history
+        else:
+            return score , prey
+  
 class elephant_herding_optimizer(swarm_optimizer):
     def __init__(self, population_size, max_gen, n_clans, output = True) -> None:
         # overide initiation from swarm_optimizer class to include maax_clan size
@@ -411,6 +394,7 @@ class dwarf_mongoose_optimizer(swarm_optimizer):
             phi = np.random.uniform(-1, 1)
 
             # evaluate new fitness of population
+            raise NotImplementedError
 
             # determine the movement vector
 
@@ -428,3 +412,61 @@ class dwarf_mongoose_optimizer(swarm_optimizer):
         else:
             return best
 
+class chameleon_swarm_algorithm(swarm_optimizer):
+    def __init__(self, population_size, max_iter):
+        super().__init__(population_size, max_iter)
+
+    def optimize(self):
+        chameleon_positions = self.gen_population() # 7. Randomize the position of the chameleons
+
+        fitness = self.evaluate(chameleon_positions) # 9. evaluate the position of the chameleons
+        fmin0 = np.min(fitness) # current best fitness
+
+        chameleon_best_positions = chameleon_positions.copy()
+        g_position = chameleon_positions[np.argmin(fitness)] #  best position
+        v = 0.1 * chameleon_best_positions # 8a initializing velocities 
+        v0 = np.zeros_like(v) # 8b initializing velocities 
+
+        cg_curve = np.zeros(self.max_iter)
+
+        for t in range(1, self.max_iter + 1):
+            # 11 - 13
+            mu = 1.0 * np.exp(-(3.5 * t / self.max_iter) ** 3.0)
+            omega = (1 - (t / self.max_iter)) ** (1.0 * np.sqrt(t / self.max_iter))
+            a = 2590 * (1 - np.exp(-np.log(t)))
+
+            p1 = 0.25
+            p2 = 1.5
+
+            for i in range(self.pop_size):
+                if np.random.rand() >= 0.1:
+                    chameleon_positions[i, :] += (
+                        p1 * (chameleon_best_positions[i, :] - g_position) * np.random.rand()
+                        + p2 * (g_position - chameleon_positions[i, :]) * np.random.rand())
+                else:
+                    chameleon_positions[i, :] += mu * (
+                        (self.ub - self.lb) * np.random.rand(self.dim) + self.lb
+                        ) * np.sign(np.random.rand(self.dim) - 0.5)
+
+                v[i, :] = omega * v[i, :] + p1 * (chameleon_best_positions[i, :] - chameleon_positions[i, :]) * np.random.rand() + p2 * (g_position - chameleon_positions[i, :]) * np.random.rand()
+                chameleon_positions[i, :] += (v[i, :] ** 2 - v0[i, :] ** 2) / (2 * a)
+
+            v0 = v.copy()
+
+            chameleon_positions = np.clip(chameleon_positions, self.lb, self.ub)
+            fitness = np.apply_along_axis(self.fobj, 1, chameleon_positions)
+
+            for i in range(self.pop_size):
+                if fitness[i] < np.min(fitness):
+                    chameleon_best_positions[i, :] = chameleon_positions[i, :]
+
+            current_fmin = np.min(fitness)
+            current_best_position = chameleon_positions[np.argmin(fitness)]
+
+            if current_fmin < fmin0:
+                g_position = current_best_position.copy()
+                fmin0 = current_fmin
+
+            cg_curve[t - 1] = fmin0
+
+        return fmin0, g_position, cg_curve
