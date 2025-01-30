@@ -34,6 +34,10 @@ class swarm_optimizer(optimizer):
         super().__init__(bounds, obj_f)
         self.pop_size = population_size
         self.max_iter = max_iter
+
+        # ensure population is valid
+        if self.pop_size < 3: 
+            raise ValueError ("Population size is too small")
     
     def evaluate(self, members):
         """
@@ -71,6 +75,10 @@ class cheetah_optimizer(swarm_optimizer):
         return np.random.choice(range(low, high), size = size, replace = False)
 
     def optimize(self):
+        """
+        This function implements the Cheetah Optimizer as defined by Mohammed et al (2022)
+        https://doi.org/10.1038/s41598-022-14338-z
+        """
         if self.history:
             history = {"iteration_no": [], "score": [], "parameters" : []}
     
@@ -94,11 +102,11 @@ class cheetah_optimizer(swarm_optimizer):
         it = 0
 
         # determine max hunting time (T) and iteration number (maxit)
+        T = 60 * int(np.ceil(D/10))
         if self.max_iter == None:
             maxit = D*2000
         else:
             maxit = self.max_iter
-        T = 60 * int(np.ceil(D/10))
         
         # Loop while max iteration number is not reached
         while it <= maxit:
@@ -151,10 +159,10 @@ class cheetah_optimizer(swarm_optimizer):
                     if r2 <= r3:
                         # Calculate r4
                         r4 = 3 * np.random.rand()
-                        if H > r4: #Attack
+                        if H > r4: # Attack
                             Z[j] = Xbest[j] + r_check * beta
 
-                        else: #Search
+                        else: # Search
                             Z[j] = X[j] + (1 / r_hat) * alpha
 
                     else: # Sit and Wait
@@ -193,15 +201,13 @@ class cheetah_optimizer(swarm_optimizer):
                     fitness = self.evaluate(cheetahs)
                     leaders = []
 
-            # update iteration number
+            # update iteration number and progress bar
             a = int(it / maxit * 40)
             b = 40 - a
             print(f"\r{ a * '='}{b * '-'}{round(it / maxit * 100)}%{'' * 5}", end = "", flush = True)
             it += 1
 
             # Update prey 
-            # TODO 
-            # Change this to only update from leader rather than using obj_f
             max_index = np.argmax(fitness)
             if fitness[max_index] > score:
                 score = fitness[max_index]
@@ -219,31 +225,25 @@ class cheetah_optimizer(swarm_optimizer):
             return score , prey
   
 class elephant_herding_optimizer(swarm_optimizer):
-    def __init__(self, population_size, max_gen, n_clans, output = True) -> None:
-        # overide initiation from swarm_optimizer class to include maax_clan size
-        if population_size >= 3: 
-            self.pop_size = population_size 
-        else:
-            self.pop_size = 3
-            print("Population size is too small, population size has been set to 3")
-
-        self.max_gen = max_gen
+    def __init__(self, bounds, obj_f, population_size, max_iter, n_clans = None) -> None:
+        super().__init__(bounds, obj_f, population_size, max_iter)
+        self.n_clans = n_clans
         
-        # ensure the maax clan size is valid and reassign it if it not valid
-        max_clan_size = int(population_size / 3)
-        if n_clans <= max_clan_size:
-            self.n_clans = n_clans
-        else:
-            self.n_clans = max_clan_size
-            print(f"Clan size is too large, clan size was reduced to {max_clan_size}")
-        
-        self.output = output
+        # ensure clan size is valid
+        if self.n_clans == None:
+            self.n_clans = int(population_size / 3)
+        if self.n_clans > int(population_size / 3):
+            raise ValueError (f"Clan size is too large")
 
     def optimize(self):
+        """
+        This function implements the Elephant Herding Optimizer as define by Gai-Ge et al (2015)
+        https://doi.org/10.1109/ISCBI.2015.8
+        """
         # initialize generation counter and output storage
         gen_it = 0
-        if self.output == True:
-            output = []
+        if self.history == True:
+            history = {"iteration_no": [], "score": [], "parameters" : []}
         
         # initialize population
         population = self.gen_population()
@@ -266,16 +266,15 @@ class elephant_herding_optimizer(swarm_optimizer):
             member_index += 1
             current_clan += 1
         
-        best_member, best_fitness = [None, np.inf]
+        best_member, best_fitness = [None, -np.inf]
 
-        # peroform optimization steps
-        while gen_it < self.max_gen:
-
+        # perform optimization steps
+        while gen_it < self.max_iter:
             # for each clan
             for clan in clan_members_map.keys():
                 # find best member
                 clan_fitness = self.evaluate([population[member] for member in clan_members_map[clan]])
-                best_clan_member_index = clan_members_map[clan][np.argmin(clan_fitness)]
+                best_clan_member_index = clan_members_map[clan][np.argmax(clan_fitness)]
 
                 # update members in clan using best member
                 alpha = 0.5 
@@ -304,22 +303,28 @@ class elephant_herding_optimizer(swarm_optimizer):
 
             # find the best member in population and history and store it
             overall_fitness = self.evaluate(population)
-            best_member_index = np.argmin(overall_fitness)
+            best_member_index = np.argmax(overall_fitness)
 
-            if overall_fitness[best_member_index] < best_fitness:
+            if overall_fitness[best_member_index] > best_fitness:
                 best_member = population[best_member_index]
                 best_fitness = overall_fitness[best_member_index]
 
-            if self.output == True:
-                output.append([best_member, best_fitness])
-
+            # Update iteration number and progress bar
             gen_it += 1
+            a = int(gen_it / self.max_iter * 40)
+            b = 40 - a
+            print(f"\r{ a * '='}{b * '-'}{round(gen_it / self.max_iter * 100)}%{'' * 5}", end = "", flush = True)
+
+            if self.history == True:
+                history["iteration_no"].append(gen_it)
+                history["score"].append(best_fitness)
+                history["parameters"].append(best_member)
         
         # return best member and fitness
-        if self.output == True: 
-            return output
+        if self.history == True: 
+            return history
         else: 
-            return (best_member, best_fitness)
+            return best_fitness, best_member
 
 class dwarf_mongoose_optimizer(swarm_optimizer):
     def __init__(self, population_size, max_iter, n_babysitters, history = True):
