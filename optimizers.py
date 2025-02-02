@@ -1,6 +1,9 @@
 import numpy as np
 import random
 
+# TODO implement an error function that checks for needed values before optimizing and call them out if mising
+# TODO implete prgress bar as a genral function and let it print a done line after
+
 class optimizer():
     def __init__(self, bounds, obj_f):
         """
@@ -14,11 +17,13 @@ class optimizer():
         """
         self.bounds = bounds
         self.lb, self.ub = zip(*bounds)
-        self.dim = len(bounds)
         self.obj_f = obj_f
         self.history = True
+    
+    def __name__():
+        return "Optimizer"
 
-    def store_history(self, value):
+    def set_history(self, value):
         """
         This function sets whether best values and parameters found for each iteration
         should be stored or not for the optimization process. Default value is True
@@ -26,7 +31,7 @@ class optimizer():
         self.history = value
 
 class swarm_optimizer(optimizer):
-    def __init__(self, bounds, obj_f, population_size, max_iter):
+    def __init__(self, bounds, obj_f, population_size = None, max_iter = None):
         """
         This functions instantiates a swarm optimizer class using its
         population size and maximum generations for evolution
@@ -36,9 +41,20 @@ class swarm_optimizer(optimizer):
         self.max_iter = max_iter
 
         # ensure population is valid
+        if self.pop_size != None and self.pop_size < 3: 
+            raise ValueError ("Population size is too small")
+    
+    def __name__():
+        return "SWarm Optimizer"
+    
+    def set_population_size(self, pop_size):
+        self.pop_size = pop_size
         if self.pop_size < 3: 
             raise ValueError ("Population size is too small")
     
+    def set_max_iter(self, max_iter):
+        self.max_iter = max_iter
+
     def evaluate(self, members):
         """
         This function returns the fitness of all members specified in an itertive
@@ -62,9 +78,12 @@ class swarm_optimizer(optimizer):
         return np.clip(arr, self.lb, self.ub)
 
 class cheetah_optimizer(swarm_optimizer):
-    def __init__(self, bounds, obj_f, population_size, max_iter = None):
+    def __init__(self, bounds, obj_f, population_size = None, max_iter = None):
         super().__init__(bounds, obj_f, population_size, max_iter)
     
+    def __name__():
+        return "Cheetah Optimizer"
+
     def random_select(self, low, high, size):
         """
         Returns N unique elements within the limits low nd high provided
@@ -225,15 +244,27 @@ class cheetah_optimizer(swarm_optimizer):
             return score , prey
   
 class elephant_herding_optimizer(swarm_optimizer):
-    def __init__(self, bounds, obj_f, population_size, max_iter, n_clans = None) -> None:
+    def __init__(self, bounds, obj_f, population_size = None, max_iter = None, n_clans = None) -> None:
         super().__init__(bounds, obj_f, population_size, max_iter)
         self.n_clans = n_clans
-        
+    
+    def __name__():
+        return "Elephant Herding Optimizer"
+    
+    def set_population_size(self, pop_size):
+        self.pop_size = pop_size
         # ensure clan size is valid
         if self.n_clans == None:
-            self.n_clans = int(population_size / 3)
-        if self.n_clans > int(population_size / 3):
+            self.n_clans = int(pop_size / 3)
+        elif self.n_clans > int(pop_size / 3):
             raise ValueError (f"Clan size is too large")
+    
+    def set_n_clans(self, n_clan):
+        self.n_clans = n_clan
+        if self.pop_size == None:
+            raise ValueError ("n_clans specified before pop size")
+        if self.n_clans > int(self.pop_size / 3):
+            raise ValueError ("Clan size is too large")
 
     def optimize(self):
         """
@@ -332,6 +363,9 @@ class dwarf_mongoose_optimizer(swarm_optimizer):
         self.n_babysitters = n_babysitters
         self.history = history
     
+    def __name__():
+        return "Dwarf Mongoose Optimizer"
+    
     def random_select(self, population_ids, remove = False):
         """
         This function selects a random id from a population
@@ -420,6 +454,9 @@ class dwarf_mongoose_optimizer(swarm_optimizer):
 class chameleon_swarm_algorithm(swarm_optimizer):
     def __init__(self, population_size, max_iter):
         super().__init__(population_size, max_iter)
+    
+    def __name__():
+        return "Chameleon Swarm Optimizer"
 
     def optimize(self):
         chameleon_positions = self.gen_population() # 7. Randomize the position of the chameleons
